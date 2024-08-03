@@ -55,6 +55,7 @@
 //!         //The peer's ip address
 //!         endpoint: "1.2.3.4".parse().unwrap(),
 //!     }],
+//!     default_route_metric: 5,
 //! };
 //!
 //! //Set the config our adapter will use

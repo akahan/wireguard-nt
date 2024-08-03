@@ -55,6 +55,9 @@ fn main() {
             allowed_ips: vec![allowed_ip], //Only tunnel traffic bound for the demo server the wireguard interface
             endpoint,
         }],
+        mtu: 1420,
+        interface_metric: 0,
+        default_route_metric: 5,
     };
     assert!(adapter.set_logging(wireguard_nt::AdapterLoggingLevel::OnWithPrefix));
 

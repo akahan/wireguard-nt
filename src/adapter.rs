@@ -85,6 +85,15 @@ pub struct SetInterface {
 
     /// The peers that this interface is allowed to communicate with
     pub peers: Vec<SetPeer>,
+
+    /// Interface MTU
+    pub mtu: u32,
+
+    /// Interface Metric
+    pub interface_metric: u32,
+    
+    /// Default route Metric
+    pub default_route_metric: u32,
 }
 
 fn encode_name(
@@ -363,7 +372,7 @@ impl Adapter {
                 let mut default_route = std::mem::zeroed::<MIB_IPFORWARD_ROW2>();
                 InitializeIpForwardEntry(&mut default_route);
                 default_route.InterfaceLuid = std::mem::transmute::<u64, Ndis::NET_LUID_LH>(luid);
-                default_route.Metric = 0;
+                default_route.Metric = config.default_route_metric;
 
                 match allowed_ip {
                     IpNet::V4(v4) => {
@@ -441,8 +450,8 @@ impl Adapter {
             ip_interface.ManagedAddressConfigurationSupported = 0;
             ip_interface.OtherStatefulConfigurationSupported = 0;
             ip_interface.UseAutomaticMetric = 0;
-            ip_interface.Metric = 0;
-            ip_interface.NlMtu = 1420;
+            ip_interface.Metric = config.interface_metric;
+            ip_interface.NlMtu = config.mtu;
             ip_interface.SitePrefixLength = 0;
             let err = SetIpInterfaceEntry(&mut ip_interface);
             if err != ERROR_SUCCESS {

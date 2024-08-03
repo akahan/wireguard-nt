@@ -21,7 +21,7 @@ use windows_sys::Win32::{
         WinSock::{IN6_ADDR, IN_ADDR},
     },
 };
-
+use windows_sys::Win32::Networking::WinSock::RouterDiscoveryDisabled;
 use crate::log::AdapterLoggingLevel;
 use crate::util;
 use crate::util::{StructReader, UnsafeHandle};
@@ -363,7 +363,7 @@ impl Adapter {
                 let mut default_route = std::mem::zeroed::<MIB_IPFORWARD_ROW2>();
                 InitializeIpForwardEntry(&mut default_route);
                 default_route.InterfaceLuid = std::mem::transmute::<u64, Ndis::NET_LUID_LH>(luid);
-                default_route.Metric = 5;
+                default_route.Metric = 0;
 
                 match allowed_ip {
                     IpNet::V4(v4) => {

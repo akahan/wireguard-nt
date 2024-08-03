@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use rand::Rng;
 use widestring::U16CString;
 use windows_sys::Win32::{
     Foundation::{GetLastError, ERROR_MORE_DATA, ERROR_OBJECT_ALREADY_EXISTS, ERROR_SUCCESS},
@@ -18,7 +17,7 @@ use windows_sys::Win32::{
         Ndis,
     },
     Networking::{
-        WinSock::{IpDadStatePreferred, RouterDiscoveryDisabled, AF_INET, AF_INET6},
+        WinSock::{IpDadStatePreferred, AF_INET, AF_INET6},
         WinSock::{IN6_ADDR, IN_ADDR},
     },
 };
@@ -149,7 +148,8 @@ impl Adapter {
 
         let guid = guid.unwrap_or_else(|| {
             let mut guid_bytes = [0u8; 16];
-            rand::thread_rng().fill(&mut guid_bytes);
+            getrandom::getrandom(&mut guid_bytes)
+                .expect("Failed to generate random bytes for guid");
             u128::from_ne_bytes(guid_bytes)
         });
         //SAFETY: guid is a unique integer so transmuting either all zeroes or the user's preferred
@@ -363,7 +363,7 @@ impl Adapter {
                 let mut default_route = std::mem::zeroed::<MIB_IPFORWARD_ROW2>();
                 InitializeIpForwardEntry(&mut default_route);
                 default_route.InterfaceLuid = std::mem::transmute::<u64, Ndis::NET_LUID_LH>(luid);
-                default_route.Metric = 0;
+                default_route.Metric = 5;
 
                 match allowed_ip {
                     IpNet::V4(v4) => {

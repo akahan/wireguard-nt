@@ -17,7 +17,7 @@ use windows_sys::Win32::{
         Ndis,
     },
     Networking::{
-        WinSock::{IpDadStatePreferred, AF_INET, AF_INET6},
+        WinSock::{RouterDiscoveryDisabled, IpDadStatePreferred, AF_INET, AF_INET6},
         WinSock::{IN6_ADDR, IN_ADDR},
     },
 };
@@ -84,6 +84,9 @@ pub struct SetInterface {
 
     /// The peers that this interface is allowed to communicate with
     pub peers: Vec<SetPeer>,
+
+    /// Interface MTU
+    pub mtu: u32,
 }
 
 fn encode_name(name: &str) -> Result<U16CString> {
@@ -436,7 +439,7 @@ impl Adapter {
             ip_interface.OtherStatefulConfigurationSupported = 0;
             ip_interface.UseAutomaticMetric = 0;
             ip_interface.Metric = metric;
-            ip_interface.NlMtu = 1420;
+            ip_interface.NlMtu = config.mtu;
             ip_interface.SitePrefixLength = 0;
             let err = SetIpInterfaceEntry(&mut ip_interface);
             if err != ERROR_SUCCESS {

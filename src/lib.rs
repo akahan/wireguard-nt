@@ -54,6 +54,7 @@
 //!         //The peer's ip address
 //!         endpoint: "1.2.3.4".parse().unwrap(),
 //!     }],
+//!     mtu: 1420,
 //! };
 //!
 //! //Set the config our adapter will use

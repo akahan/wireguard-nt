@@ -10,14 +10,16 @@ use windows_sys::Win32::{
     Foundation::{GetLastError, ERROR_MORE_DATA, ERROR_OBJECT_ALREADY_EXISTS, ERROR_SUCCESS},
     NetworkManagement::{
         IpHelper::{
-            CreateIpForwardEntry2, CreateUnicastIpAddressEntry, GetIpInterfaceEntry,
-            InitializeIpForwardEntry, InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry,
-            SetIpInterfaceEntry, MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
+            CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DeleteUnicastIpAddressEntry,
+            GetIpInterfaceEntry, GetUnicastIpAddressTable, InitializeIpForwardEntry,
+            InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry, SetIpInterfaceEntry,
+            MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
+            MIB_UNICASTIPADDRESS_TABLE,
         },
         Ndis,
     },
     Networking::{
-        WinSock::{RouterDiscoveryDisabled, IpDadStatePreferred, AF_INET, AF_INET6},
+        WinSock::{IpDadStatePreferred, RouterDiscoveryDisabled, AF_INET, AF_INET6},
         WinSock::{IN6_ADDR, IN_ADDR},
     },
 };
@@ -354,6 +356,17 @@ impl Adapter {
         config: &SetInterface,
         metric: u32,
     ) -> Result<()> {
+        let address_family = if interface_addrs
+            .first()
+            .expect("At least one interface address is required.")
+            .addr()
+            .is_ipv4()
+        {
+            AF_INET
+        } else {
+            AF_INET6
+        };
+
         let luid = self.get_luid();
         unsafe {
             for allowed_ip in config.peers.iter().flat_map(|p| p.allowed_ips.iter()) {
@@ -394,39 +407,7 @@ impl Adapter {
             let mut ip_interface = std::mem::zeroed::<MIB_IPINTERFACE_ROW>();
             InitializeIpInterfaceEntry(&mut ip_interface);
             ip_interface.InterfaceLuid = std::mem::transmute::<u64, Ndis::NET_LUID_LH>(luid);
-
-            for interface_addr in interface_addrs {
-                let mut address_row = std::mem::zeroed::<MIB_UNICASTIPADDRESS_ROW>();
-                InitializeUnicastIpAddressEntry(&mut address_row);
-                address_row.InterfaceLuid = std::mem::transmute::<u64, Ndis::NET_LUID_LH>(luid);
-                address_row.OnLinkPrefixLength = interface_addr.prefix_len();
-                address_row.DadState = IpDadStatePreferred;
-
-                match interface_addr {
-                    IpNet::V4(interface_addr_v4) => {
-                        ip_interface.Family = AF_INET;
-
-                        address_row.Address.Ipv4.sin_family = AF_INET;
-                        address_row.Address.Ipv4.sin_addr = std::mem::transmute::<[u8; 4], IN_ADDR>(
-                            interface_addr_v4.addr().octets(),
-                        );
-                    }
-                    IpNet::V6(interface_addr_v6) => {
-                        ip_interface.Family = AF_INET6;
-
-                        address_row.Address.Ipv6.sin6_family = AF_INET6;
-                        address_row.Address.Ipv6.sin6_addr =
-                            std::mem::transmute::<[u8; 16], IN6_ADDR>(
-                                interface_addr_v6.addr().octets(),
-                            );
-                    }
-                }
-
-                let err = CreateUnicastIpAddressEntry(&address_row);
-                if err != ERROR_SUCCESS && err != ERROR_OBJECT_ALREADY_EXISTS {
-                    return win_error("CreateUnicastIpAddressEntry", err);
-                }
-            }
+            ip_interface.Family = address_family;
 
             let err = GetIpInterfaceEntry(&mut ip_interface);
             if err != ERROR_SUCCESS {
@@ -444,6 +425,71 @@ impl Adapter {
             let err = SetIpInterfaceEntry(&mut ip_interface);
             if err != ERROR_SUCCESS {
                 return win_error("SetIpInterfaceEntry", err);
+            }
+
+            self.set_ip_addresses(interface_addrs)
+        }
+    }
+
+    /// Assigns this adapter an ip addresses.
+    pub fn set_ip_addresses(&self, interface_addrs: &[IpNet]) -> Result<()> {
+        let luid = self.get_luid();
+        unsafe {
+            for interface_addr in interface_addrs {
+                let mut address_row = std::mem::zeroed::<MIB_UNICASTIPADDRESS_ROW>();
+                InitializeUnicastIpAddressEntry(&mut address_row);
+                address_row.InterfaceLuid = std::mem::transmute::<u64, Ndis::NET_LUID_LH>(luid);
+                address_row.OnLinkPrefixLength = interface_addr.prefix_len();
+                address_row.DadState = IpDadStatePreferred;
+
+                match interface_addr {
+                    IpNet::V4(interface_addr_v4) => {
+                        address_row.Address.Ipv4.sin_family = AF_INET;
+                        address_row.Address.Ipv4.sin_addr = std::mem::transmute::<[u8; 4], IN_ADDR>(
+                            interface_addr_v4.addr().octets(),
+                        );
+                    }
+                    IpNet::V6(interface_addr_v6) => {
+                        address_row.Address.Ipv6.sin6_family = AF_INET6;
+                        address_row.Address.Ipv6.sin6_addr =
+                            std::mem::transmute::<[u8; 16], IN6_ADDR>(
+                                interface_addr_v6.addr().octets(),
+                            );
+                    }
+                }
+
+                let err = CreateUnicastIpAddressEntry(&address_row);
+                if err != ERROR_SUCCESS && err != ERROR_OBJECT_ALREADY_EXISTS {
+                    return win_error("CreateUnicastIpAddressEntry", err);
+                }
+            }
+
+            Ok(())
+        }
+    }
+
+    /// Deletes all ip addresses of this adapter.
+    pub fn delete_ip_addresses(&self) -> Result<()> {
+        let luid = self.get_luid();
+        unsafe {
+            let mut table = std::mem::zeroed::<*mut MIB_UNICASTIPADDRESS_TABLE>();
+            let err = GetUnicastIpAddressTable(AF_INET, &mut table);
+            if err != ERROR_SUCCESS {
+                return win_error("GetUnicastIpAddressTable", err);
+            }
+
+            let addresses =
+                std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize);
+
+            for address in addresses {
+                if address.InterfaceLuid.Value != luid {
+                    continue;
+                }
+
+                let err = DeleteUnicastIpAddressEntry(address);
+                if err != ERROR_SUCCESS {
+                    return win_error("DeleteUnicastIpAddressEntry", err);
+                }
             }
 
             Ok(())
